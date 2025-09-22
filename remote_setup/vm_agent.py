@@ -197,7 +197,7 @@ class HostAgentHandler(BaseHTTPRequestHandler):
 
 
 def check_for_updates():
-    repo_url = "https://github.com/Sotired001/riko-remote-control.git"
+    repo_url = "https://github.com/Sotired001/Riko-Remote.git"
     if not os.path.exists('.git'):
         print("Not in git repo, cloning repository for auto-update...")
         try:
