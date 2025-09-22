@@ -1,16 +1,34 @@
 @echo off
-REM DEPRECATED: install_remote.bat superseded by ../agent_setup/install_agent.bat
-echo NOTE: This installer is deprecated. Prefer agent_setup\install_agent.bat
-REM install_remote.bat - One-click setup and run the host agent on Windows
+REM install_agent.bat - simple installer for Riko Agent on Windows
+echo Installing Riko Agent prerequisites...
+where python >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+  echo Python not found. Installing via winget if available...
+  where winget >nul 2>&1
+  if %ERRORLEVEL% EQU 0 (
+    winget install -e --id Python.Python.3
+  ) else (
+    echo Please install Python 3.x and rerun this script.
+    pause
+    exit /b 1
+  )
+)
+echo Installing pip packages...
+python -m pip install --upgrade pip
+python -m pip install pillow requests pyautogui opencv-python-headless numpy
+echo Starting agent (dry-run mode by default)...
+start "Riko Agent" cmd /k "python vm_agent.py --dry-run"
+echo Done.@echo off
+REM install_agent.bat - One-click setup and run the agent on Windows
 
-echo Setting up host agent...
+echo Setting up agent...
 
 echo Current directory: %cd%
-echo Looking for host_agent.py at: %cd%\host_agent.py
+echo Looking for vm_agent.py at: %cd%\vm_agent.py
 
 REM Check if the file exists
-if not exist "%cd%\host_agent.py" (
-    echo Error: host_agent.py not found at %cd%\host_agent.py
+if not exist "%cd%\vm_agent.py" (
+    echo Error: vm_agent.py not found at %cd%\vm_agent.py
     echo Please ensure the files are in the correct folder.
     pause
     exit /b 1
@@ -64,7 +82,7 @@ echo Installing dependencies...
 pip install pillow pyautogui
 
 REM Run the agent
-echo Starting host agent on port 8000...
-python host_agent.py --port 8000
+echo Starting agent on port 8000...
+python vm_agent.py
 
 pause

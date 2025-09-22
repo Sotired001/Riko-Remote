@@ -2,7 +2,8 @@
 host_agent.py
 
 Simple host agent to run on the Riko host machine. Exposes a minimal HTTP API to
-allow the remote control client to request screenshots and execute actions.
+DEPRECATED: This file has been superseded by agent_setup/vm_agent.py
+allow an agent control client to request screenshots and execute actions.
 
 Endpoints:
 - GET /status -> JSON {status: 'ok', hostname, time}
@@ -69,31 +70,13 @@ class HostAgentHandler(BaseHTTPRequestHandler):
         if not self._check_rate_limit():
             return
         if self.path == '/status':
-            info = {
-                'status': 'ok',
-                'hostname': socket.gethostname(),
-                'time': time.time()
-            }
-            self._send_json(info)
-            return
+            """
+            DEPRECATED: legacy vm agent moved to `agent_setup/vm_agent.py`.
 
-        if self.path == '/screenshot':
-            try:
-                img = ImageGrab.grab()
-                if self.last_screenshot is not None:
-                    # Quick change detection: compare hashes
-                    current_hash = hash(img.tobytes())
-                    last_hash = hash(self.last_screenshot.tobytes())
-                    if current_hash == last_hash:
-                        self._send_json({'no_change': True})
-                        return
-                # Send full image
-                buffered = io.BytesIO()
-                img.save(buffered, format='JPEG')
-                b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                self._send_json({'image': b64})
-                # Update cache
-                self.last_screenshot = img.copy()
+            This file is a lightweight placeholder left for compatibility. Use the
+            canonical agent under `agent_setup/` and see `remote_setup.bak/` for original
+            source if needed.
+            """
             except Exception as e:
                 self._send_json({'error': str(e)}, status=500)
             return
@@ -127,7 +110,7 @@ class HostAgentHandler(BaseHTTPRequestHandler):
             return
         if self.path == '/update':
             # Force update endpoint - requires authentication
-            expected_token = os.getenv('REMOTE_API_TOKEN')
+            expected_token = os.getenv('AGENT_API_TOKEN', os.getenv('REMOTE_API_TOKEN'))
             auth_header = self.headers.get('Authorization', '')
             if expected_token and not auth_header.startswith(f'Bearer {expected_token}'):
                 self._send_json({'error': 'unauthorized'}, status=401)
@@ -143,7 +126,7 @@ class HostAgentHandler(BaseHTTPRequestHandler):
 
         if self.path == '/exec':
             # Check token if configured
-            expected_token = os.getenv('REMOTE_API_TOKEN')
+            expected_token = os.getenv('AGENT_API_TOKEN', os.getenv('REMOTE_API_TOKEN'))
             auth_header = self.headers.get('Authorization', '')
             if expected_token and not auth_header.startswith(f'Bearer {expected_token}'):
                 self._send_json({'error': 'unauthorized'}, status=401)
@@ -197,7 +180,7 @@ class HostAgentHandler(BaseHTTPRequestHandler):
 
 
 def check_for_updates():
-    repo_url = "https://github.com/Sotired001/Riko-Remote.git"
+    repo_url = "https://github.com/Sotired001/riko-agent.git"
     if not os.path.exists('.git'):
         print("Not in git repo, cloning repository for auto-update...")
         try:

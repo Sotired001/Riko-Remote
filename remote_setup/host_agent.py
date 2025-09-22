@@ -1,19 +1,9 @@
 """
-host_agent.py
+DEPRECATED: legacy host agent moved to `agent_setup/host_agent.py`.
 
-Simple host agent to run on the Riko host machine. Exposes a minimal HTTP API to
-allow the remote control client to request screenshots and execute actions.
-
-Endpoints:
-- GET /status -> JSON {status: 'ok', hostname, time}
-- GET /screenshot -> returns base64 JPEG in JSON {image: '<base64>'}
-- POST /exec -> accept a JSON action (type, params) and execute it; returns success
-- POST /update -> force immediate update check; returns status
-
-Security: this is intentionally minimal. Run only on trusted host machines. If you
-expose it beyond localhost you MUST add authentication (not included).
-
-Run on the host with: python host_agent.py --port 8000
+This file is a lightweight placeholder left for compatibility. The canonical
+implementation is available under `agent_setup/` and backups are stored in
+`remote_setup.bak/`.
 """
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -111,7 +101,7 @@ class HostAgentHandler(BaseHTTPRequestHandler):
 
         if self.path == '/exec':
             # Check token if configured
-            expected_token = os.getenv('REMOTE_API_TOKEN')
+            expected_token = os.getenv('AGENT_API_TOKEN', os.getenv('REMOTE_API_TOKEN'))
             auth_header = self.headers.get('Authorization', '')
             if expected_token and not auth_header.startswith(f'Bearer {expected_token}'):
                 self._send_json({'error': 'unauthorized'}, status=401)
@@ -164,7 +154,7 @@ class HostAgentHandler(BaseHTTPRequestHandler):
 
 
 def check_for_updates():
-    repo_url = "https://github.com/Sotired001/riko-remote-control.git"
+    repo_url = "https://github.com/Sotired001/riko-agent.git"
     if not os.path.exists('.git'):
         print("Not in git repo, cloning repository for auto-update...")
         try:

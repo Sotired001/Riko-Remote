@@ -1,76 +1,59 @@
-# Riko Remote Control
+# Riko Agent
 
-A remote desktop control and monitoring system with real-time video streaming and automatic updates.
+A desktop agent for monitoring and optional control of a machine with real-time video streaming and automatic updates.
 
 ## Features
+# Riko Agent
 
-- **Remote Screenshot Capture**: Get real-time screenshots from remote machines
-- **Live Video Streaming**: MJPEG streaming for real-time desktop viewing
-- **Action Execution**: Execute mouse clicks, keyboard input, and scrolling remotely
-- **Automatic Updates**: Self-updating agent that pulls latest code from repository
-- **Force Update**: Manual update trigger via HTTP endpoint
-- **Security**: Token-based authentication and audit logging
+A lightweight desktop agent for monitoring and (optionally) controlling a machine.
 
-## Quick Start
+Features
 
-### Host Machine Setup
-1. Copy the `remote_setup/` folder to your Riko host machine
-2. Run `install_remote.bat` (installs Python, Git, and dependencies)
-3. The agent starts automatically on port 8000
+- Real-time screenshot capture
+- MJPEG streaming for live viewing
+- Optional action execution (mouse/keyboard/scroll) — use only in trusted environments
+- Automatic updates with an optional manual trigger
+- Token-based authentication and audit logging
 
-### Remote Control Machine Connection
-```bash
-# Set environment variable for host IP
-$env:HOST_AGENT_URL = 'http://HOST_IP:8000'
+Quick start
 
-# Start the viewer
+1. Copy the `agent_setup/` folder to the machine you want to monitor.
+2. (Optional) Set an environment variable: `AGENT_API_TOKEN` (if you need compatibility with older deployments, `REMOTE_API_TOKEN` is also accepted).
+3. Run the installer or the agent script directly, for example:
+
+```powershell
+agent_setup\install_agent.bat
+# or
+python agent_setup\vm_agent.py
+```
+
+From the viewer machine:
+
+```powershell
+$env:VM_AGENT_URL = 'http://AGENT_IP:8000'
+# Optional token
+$env:AGENT_API_TOKEN = 'your-token'
 python vm_stream_viewer.py
 ```
 
-## API Endpoints
+API endpoints
 
-- `GET /status` - System status and information
-- `GET /screenshot` - Base64 encoded JPEG screenshot
-- `GET /stream` - MJPEG video stream (~10 FPS)
-- `POST /exec` - Execute actions (requires authentication)
-- `POST /update` - Force immediate update check
+- GET /status — health and basic info
+- GET /screenshot — base64-encoded JPEG (returns `no_change` when unchanged)
+- GET /stream — MJPEG stream (~10 FPS)
+- POST /exec — execute actions (requires token)
+- POST /update — trigger an update check
 
-## Security
+Security
 
-- **Authentication**: All sensitive endpoints require `REMOTE_API_TOKEN` environment variable
-- **Rate Limiting**: Maximum 10 requests per minute per IP address
-- **Network Binding**: Server binds to localhost (127.0.0.1) by default for security
-- **Token Masking**: API tokens are masked in audit logs (only first 8 characters shown)
-- **Audit Logging**: All actions are logged with timestamps, masked tokens, and client IPs
-- **Error Handling**: Generic error messages prevent information leakage
+- Use `AGENT_API_TOKEN` for authenticated endpoints. `REMOTE_API_TOKEN` is supported for compatibility.
+- Rate limiting defaults to 10 requests per minute per IP.
+- Audit logs are written to `agent_audit.jsonl` (tokens are masked).
 
-**⚠️ Security Warning**: This system allows remote control of the host machine. Only run on trusted networks and ensure proper authentication is configured.
+Auto-update
 
-## Auto-Update
+The agent periodically checks for updates and can be forced via `POST /update`.
 
-The host agent automatically checks for updates every 5 minutes and updates itself. You can also force an update:
+License
 
-```bash
-# From remote control machine
-Invoke-WebRequest -Uri "http://HOST_IP:8000/update" -Method POST
-```
-
-## Requirements
-
-- **Host Machine**: Windows with internet access (runs Riko AI)
-- **Remote Control Machine**: Python 3.x with OpenCV
-- **Network**: Host machine must be accessible from remote control machine
-
-## Installation
-
-1. Clone this repository
-2. Copy `remote_setup/` to host machine
-3. Set environment variable: `$env:REMOTE_API_TOKEN = 'your-secure-token-here'`
-4. Run `install_remote.bat` on host machine
-5. Connect from remote control machine using the stream viewer
-
-**Security Note**: Always set a strong, unique `REMOTE_API_TOKEN` before running the agent.
-
-## License
-
-This project is for educational and personal use. Use responsibly and only on machines you have permission to control.
+This project is provided for educational and personal use. Use responsibly and only on systems you own or have permission to control.

@@ -1,11 +1,11 @@
 """
-Simple remote stream viewer that polls the host agent /screenshot endpoint and displays frames.
+Simple agent stream viewer that polls the agent /screenshot endpoint and displays frames.
 Usage:
-    set HOST_AGENT_URL=http://host-ip:8000
-    set REMOTE_API_TOKEN=your-token  # optional
+    set VM_AGENT_URL=http://agent-ip:8000
+    set AGENT_API_TOKEN=your-token  # optional (REMOTE_API_TOKEN still supported)
     set POLLING_RATE=10  # FPS, default 10
     set USE_STREAMING=1  # Use MJPEG streaming instead of polling
-    python scripts/vm_stream_viewer.py
+    python vm_stream_viewer.py
 
 This is a polling-based viewer (MJPEG/RTSP would be lower-latency but requires more setup).
 """
@@ -18,10 +18,11 @@ import numpy as np
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from external_reused.remote_agent_client import RemoteAgentClient
+from external_reused.agent_agent_client import AgentAgentClient
 
-HOST_AGENT_URL = os.getenv('HOST_AGENT_URL', 'http://127.0.0.1:8000')
-REMOTE_API_TOKEN = os.getenv('REMOTE_API_TOKEN')
+# Environment variables renamed: use VM_AGENT_URL and AGENT_API_TOKEN
+HOST_AGENT_URL = os.getenv('VM_AGENT_URL', os.getenv('HOST_AGENT_URL', 'http://127.0.0.1:8000'))
+REMOTE_API_TOKEN = os.getenv('AGENT_API_TOKEN', os.getenv('REMOTE_API_TOKEN'))
 POLLING_RATE = int(os.getenv('POLLING_RATE', '10'))  # FPS
 USE_STREAMING = os.getenv('USE_STREAMING', '0').lower() in ('1', 'true', 'yes')
 poll_delay = 1.0 / POLLING_RATE
@@ -44,7 +45,7 @@ if USE_STREAMING:
         while True:
             ret, frame = cap.read()
             if ret:
-                cv2.imshow('Remote Stream', frame)
+                cv2.imshow('Agent Stream', frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
             else:
@@ -54,7 +55,7 @@ if USE_STREAMING:
         cv2.destroyAllWindows()
 else:
     # Polling mode
-    client = RemoteAgentClient(HOST_AGENT_URL, api_token=REMOTE_API_TOKEN)
+    client = AgentAgentClient(HOST_AGENT_URL, api_token=REMOTE_API_TOKEN)
 
     print(f'Connecting to host agent at {HOST_AGENT_URL} (polling at {POLLING_RATE} FPS)')
 
@@ -67,7 +68,7 @@ else:
                 continue
             # Convert PIL Image to OpenCV BGR
             frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-            cv2.imshow('Remote Stream', frame)
+            cv2.imshow('Agent Stream', frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
