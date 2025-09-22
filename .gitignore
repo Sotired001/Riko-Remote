@@ -44,6 +44,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+host_agent_audit.jsonl
 
 # Screenshots and temp files
 screenshot.png

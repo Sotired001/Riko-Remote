@@ -13,15 +13,15 @@ A remote desktop control and monitoring system with real-time video streaming an
 
 ## Quick Start
 
-### Remote Machine Setup
-1. Copy the `remote_setup/` folder to your remote Windows machine
+### Host Machine Setup
+1. Copy the `remote_setup/` folder to your Riko host machine
 2. Run `install_remote.bat` (installs Python, Git, and dependencies)
 3. The agent starts automatically on port 8000
 
-### Host Machine Connection
+### Remote Control Machine Connection
 ```bash
-# Set environment variable for remote IP
-$env:VM_AGENT_URL = 'http://REMOTE_IP:8000'
+# Set environment variable for host IP
+$env:HOST_AGENT_URL = 'http://HOST_IP:8000'
 
 # Start the viewer
 python vm_stream_viewer.py
@@ -37,32 +37,39 @@ python vm_stream_viewer.py
 
 ## Security
 
-- Agent runs in **live-run mode** by default (executes actions)
-- Use `--dry-run` flag for safe logging-only mode
-- Set `REMOTE_API_TOKEN` environment variable for authentication
-- All actions are logged with timestamps and IP addresses
+- **Authentication**: All sensitive endpoints require `REMOTE_API_TOKEN` environment variable
+- **Rate Limiting**: Maximum 10 requests per minute per IP address
+- **Network Binding**: Server binds to localhost (127.0.0.1) by default for security
+- **Token Masking**: API tokens are masked in audit logs (only first 8 characters shown)
+- **Audit Logging**: All actions are logged with timestamps, masked tokens, and client IPs
+- **Error Handling**: Generic error messages prevent information leakage
+
+**⚠️ Security Warning**: This system allows remote control of the host machine. Only run on trusted networks and ensure proper authentication is configured.
 
 ## Auto-Update
 
-The remote agent automatically checks for updates every 5 minutes and updates itself. You can also force an update:
+The host agent automatically checks for updates every 5 minutes and updates itself. You can also force an update:
 
 ```bash
-# From host machine
-Invoke-WebRequest -Uri "http://REMOTE_IP:8000/update" -Method POST
+# From remote control machine
+Invoke-WebRequest -Uri "http://HOST_IP:8000/update" -Method POST
 ```
 
 ## Requirements
 
-- **Remote Machine**: Windows with internet access
-- **Host Machine**: Python 3.x with OpenCV
-- **Network**: Remote machine must be accessible from host
+- **Host Machine**: Windows with internet access (runs Riko AI)
+- **Remote Control Machine**: Python 3.x with OpenCV
+- **Network**: Host machine must be accessible from remote control machine
 
 ## Installation
 
 1. Clone this repository
-2. Copy `remote_setup/` to remote machine
-3. Run `install_remote.bat` on remote machine
-4. Connect from host using the stream viewer
+2. Copy `remote_setup/` to host machine
+3. Set environment variable: `$env:REMOTE_API_TOKEN = 'your-secure-token-here'`
+4. Run `install_remote.bat` on host machine
+5. Connect from remote control machine using the stream viewer
+
+**Security Note**: Always set a strong, unique `REMOTE_API_TOKEN` before running the agent.
 
 ## License
 

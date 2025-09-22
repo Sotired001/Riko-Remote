@@ -1,14 +1,14 @@
 @echo off
-REM install_remote.bat - One-click setup and run the remote agent on Windows
+REM install_remote.bat - One-click setup and run the host agent on Windows
 
-echo Setting up remote agent...
+echo Setting up host agent...
 
 echo Current directory: %cd%
-echo Looking for vm_agent.py at: %cd%\vm_agent.py
+echo Looking for host_agent.py at: %cd%\host_agent.py
 
 REM Check if the file exists
-if not exist "%cd%\vm_agent.py" (
-    echo Error: vm_agent.py not found at %cd%\vm_agent.py
+if not exist "%cd%\host_agent.py" (
+    echo Error: host_agent.py not found at %cd%\host_agent.py
     echo Please ensure the files are in the correct folder.
     pause
     exit /b 1
@@ -62,7 +62,7 @@ echo Installing dependencies...
 pip install pillow pyautogui
 
 REM Run the agent
-echo Starting remote agent on port 8000...
-python vm_agent.py --port 8000
+echo Starting host agent on port 8000...
+python host_agent.py --port 8000
 
 pause

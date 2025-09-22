@@ -1,18 +1,19 @@
 """
-vm_agent.py
+host_agent.py
 
-Simple in-guest agent to run inside the Windows VM. Exposes a minimal HTTP API to
-allow the host Riko process to request screenshots and run dry-run actions.
+Simple host agent to run on the Riko host machine. Exposes a minimal HTTP API to
+allow the remote control client to request screenshots and execute actions.
 
 Endpoints:
 - GET /status -> JSON {status: 'ok', hostname, time}
 - GET /screenshot -> returns base64 JPEG in JSON {image: '<base64>'}
-- POST /exec -> accept a JSON action (type, params) and log it; returns success (dry-run)
+- POST /exec -> accept a JSON action (type, params) and execute it; returns success
+- POST /update -> force immediate update check; returns status
 
-Security: this is intentionally minimal. Run only inside an isolated VM. If you
+Security: this is intentionally minimal. Run only on trusted host machines. If you
 expose it beyond localhost you MUST add authentication (not included).
 
-Run inside the VM with: python vm_agent.py --port 8000
+Run on the host with: python host_agent.py --port 8000
 """
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -27,8 +28,9 @@ from PIL import ImageGrab, Image, ImageChops
 import threading
 import subprocess
 import sys
+import shutil
 
-class VMAgentHandler(BaseHTTPRequestHandler):
+class HostAgentHandler(BaseHTTPRequestHandler):
     dry_run = True  # Default to dry-run; set by run_server
     last_screenshot = None  # Cache last screenshot for delta detection
 
@@ -97,6 +99,16 @@ class VMAgentHandler(BaseHTTPRequestHandler):
             return
 
     def do_POST(self):
+        if self.path == '/update':
+            # Force update endpoint - no auth required for simplicity
+            print("Force update requested via /update endpoint")
+            try:
+                check_for_updates()
+                self._send_json({'status': 'update_check_completed', 'message': 'Check logs for update status'})
+            except Exception as e:
+                self._send_json({'error': f'update failed: {str(e)}'}, status=500)
+            return
+
         if self.path == '/exec':
             # Check token if configured
             expected_token = os.getenv('REMOTE_API_TOKEN')
@@ -122,7 +134,7 @@ class VMAgentHandler(BaseHTTPRequestHandler):
                 'token_id': token_id,
                 'payload': payload
             }
-            with open('vm_agent_audit.jsonl', 'a', encoding='utf-8') as f:
+            with open('host_agent_audit.jsonl', 'a', encoding='utf-8') as f:
                 f.write(json.dumps(audit_entry) + '\n')
 
             if self.dry_run:
@@ -152,35 +164,64 @@ class VMAgentHandler(BaseHTTPRequestHandler):
 
 
 def check_for_updates():
+    repo_url = "https://github.com/Sotired001/riko-remote-control.git"
     if not os.path.exists('.git'):
-        return  # Not in a git repo, skip
-    try:
-        # Fetch latest changes
-        subprocess.run(['git', 'fetch'], check=True, capture_output=True)
-        # Check status
-        result = subprocess.run(['git', 'status', '-uno'], capture_output=True, text=True)
-        if 'behind' in result.stdout:
-            print("Updates available, pulling latest changes...")
-            subprocess.run(['git', 'pull'], check=True, capture_output=True)
-            print("Code updated successfully, restarting agent...")
-            # Restart the process to load new code
+        print("Not in git repo, cloning repository for auto-update...")
+        try:
+            # Clean up any existing temp_repo first
+            if os.path.exists('temp_repo'):
+                try:
+                    shutil.rmtree('temp_repo')
+                except:
+                    pass  # Ignore cleanup errors
+            
+            subprocess.run(['git', 'clone', repo_url, 'temp_repo'], check=True, capture_output=True)
+            # Copy updated files
+            import shutil
+            for file in ['vm_agent.py', 'install_remote.bat', 'README.txt']:
+                if os.path.exists(f'temp_repo/remote_setup/{file}'):
+                    shutil.copy2(f'temp_repo/remote_setup/{file}', file)
+            
+            # Try to clean up, but don't fail if it doesn't work
+            try:
+                shutil.rmtree('temp_repo')
+            except Exception as e:
+                print(f"Warning: Could not clean up temp_repo: {e}")
+            
+            print("Repository cloned and updated successfully, restarting agent...")
             os.execv(sys.executable, [sys.executable] + sys.argv)
-    except subprocess.CalledProcessError as e:
-        print(f"Git command failed: {e}")
-    except FileNotFoundError:
-        print("Git not installed, skipping auto-update")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to clone repo: {e}")
+            return
+    else:
+        try:
+            # Fetch latest changes
+            subprocess.run(['git', 'fetch'], check=True, capture_output=True)
+            # Check status
+            result = subprocess.run(['git', 'status', '-uno'], capture_output=True, text=True)
+            if 'behind' in result.stdout:
+                print("Updates available, pulling latest changes...")
+                subprocess.run(['git', 'pull'], check=True, capture_output=True)
+                print("Code updated successfully, restarting agent...")
+                # Restart the process to load new code
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+        except subprocess.CalledProcessError as e:
+            print(f"Git command failed: {e}")
+        except FileNotFoundError:
+            print("Git not installed, skipping auto-update")
 
 
 def check_updates_loop():
+    print("Auto-update thread started, checking for updates...")
     while True:
         check_for_updates()
         time.sleep(300)  # Check every 5 minutes
 
 
-def run_server(port: int = 8000, host: str = '0.0.0.0', dry_run: bool = True):
-    VMAgentHandler.dry_run = dry_run
-    server = HTTPServer((host, port), VMAgentHandler)
-    mode = 'dry-run (log only)' if dry_run else 'live-run (executes actions - USE WITH CAUTION)'
+def run_server(port: int = 8000, host: str = '0.0.0.0', dry_run: bool = False):
+    HostAgentHandler.dry_run = dry_run
+    server = HTTPServer((host, port), HostAgentHandler)
+    mode = 'dry-run (log only)' if dry_run else 'live-run (executes actions)'
     
     # Get local IP
     import socket
@@ -193,12 +234,11 @@ def run_server(port: int = 8000, host: str = '0.0.0.0', dry_run: bool = True):
     finally:
         s.close()
     
-    print(f"VM agent running on http://{host}:{port} (local IP: {local_ip}) in {mode} mode")
-    # Start auto-update thread if in git repo
-    if os.path.exists('.git'):
-        update_thread = threading.Thread(target=check_updates_loop, daemon=True)
-        update_thread.start()
-        print("Auto-update enabled (checks every 5 minutes)")
+    print(f"Host agent running on http://{host}:{port} (local IP: {local_ip}) in {mode} mode")
+    # Start auto-update thread
+    update_thread = threading.Thread(target=check_updates_loop, daemon=True)
+    update_thread.start()
+    print("Auto-update enabled (checks every 5 minutes)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -209,8 +249,7 @@ def run_server(port: int = 8000, host: str = '0.0.0.0', dry_run: bool = True):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8000)
-    parser.add_argument('--dry-run', action='store_true', default=True, help='Log actions only (default); use --no-dry-run to execute actions (dangerous)')
-    parser.add_argument('--no-dry-run', action='store_false', dest='dry_run')
+    parser.add_argument('--dry-run', action='store_true', default=False, help='Log actions only (safe mode); use --dry-run to enable safe logging only')
     args = parser.parse_args()
     run_server(args.port, dry_run=args.dry_run)
 

@@ -1,8 +1,8 @@
 """
-vm_agent.py
+host_agent.py
 
-Simple in-guest agent to run inside the Windows VM. Exposes a minimal HTTP API to
-allow the host Riko process to request screenshots and run dry-run actions.
+Simple host agent to run on the Riko host machine. Exposes a minimal HTTP API to
+allow the remote control client to request screenshots and execute actions.
 
 Endpoints:
 - GET /status -> JSON {status: 'ok', hostname, time}
@@ -10,10 +10,10 @@ Endpoints:
 - POST /exec -> accept a JSON action (type, params) and execute it; returns success
 - POST /update -> force immediate update check; returns status
 
-Security: this is intentionally minimal. Run only inside an isolated VM. If you
+Security: this is intentionally minimal. Run only on trusted host machines. If you
 expose it beyond localhost you MUST add authentication (not included).
 
-Run inside the VM with: python vm_agent.py --port 8000
+Run on the host with: python host_agent.py --port 8000
 """
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -29,10 +29,13 @@ import threading
 import subprocess
 import sys
 import shutil
+from collections import defaultdict
 
-class VMAgentHandler(BaseHTTPRequestHandler):
+class HostAgentHandler(BaseHTTPRequestHandler):
     dry_run = True  # Default to dry-run; set by run_server
     last_screenshot = None  # Cache last screenshot for delta detection
+    # Simple rate limiting: track requests per IP (max 10 per minute)
+    rate_limit = defaultdict(list)
 
     def _send_json(self, data, status=200):
         payload = json.dumps(data).encode('utf-8')
@@ -42,11 +45,29 @@ class VMAgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_GET(self):
-        # Unknown path
-        self._send_json({'error': 'not found'}, status=404)
+    def _check_rate_limit(self):
+        """Simple rate limiting: max 10 requests per minute per IP"""
+        client_ip = self.client_address[0]
+        now = time.time()
+        
+        # Clean old entries (older than 1 minute)
+        HostAgentHandler.rate_limit[client_ip] = [
+            ts for ts in HostAgentHandler.rate_limit[client_ip] 
+            if now - ts < 60
+        ]
+        
+        # Check if under limit
+        if len(HostAgentHandler.rate_limit[client_ip]) >= 10:
+            self._send_json({'error': 'rate limit exceeded'}, status=429)
+            return False
+            
+        # Add current request
+        HostAgentHandler.rate_limit[client_ip].append(now)
+        return True
 
     def do_GET(self):
+        if not self._check_rate_limit():
+            return
         if self.path == '/status':
             info = {
                 'status': 'ok',
@@ -98,15 +119,26 @@ class VMAgentHandler(BaseHTTPRequestHandler):
                 pass  # Client disconnect
             return
 
+        # Unknown path
+        self._send_json({'error': 'not found'}, status=404)
+
     def do_POST(self):
+        if not self._check_rate_limit():
+            return
         if self.path == '/update':
-            # Force update endpoint - no auth required for simplicity
+            # Force update endpoint - requires authentication
+            expected_token = os.getenv('REMOTE_API_TOKEN')
+            auth_header = self.headers.get('Authorization', '')
+            if expected_token and not auth_header.startswith(f'Bearer {expected_token}'):
+                self._send_json({'error': 'unauthorized'}, status=401)
+                return
+                
             print("Force update requested via /update endpoint")
             try:
                 check_for_updates()
                 self._send_json({'status': 'update_check_completed', 'message': 'Check logs for update status'})
             except Exception as e:
-                self._send_json({'error': f'update failed: {str(e)}'}, status=500)
+                self._send_json({'error': 'update failed'}, status=500)
             return
 
         if self.path == '/exec':
@@ -125,16 +157,17 @@ class VMAgentHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': 'invalid json'}, status=400)
                 return
 
-            # Audit log: append-only JSONL with timestamp, origin IP, token-id, full payload
+            # Audit log: append-only JSONL with timestamp, origin IP, token-id (masked), full payload
             client_ip = self.client_address[0]
-            token_id = auth_header.split(' ')[-1] if auth_header else 'none'
+            # Mask token for security - only log first 8 chars
+            token_id = (auth_header.split(' ')[-1][:8] + '...') if auth_header else 'none'
             audit_entry = {
                 'timestamp': time.time(),
                 'client_ip': client_ip,
                 'token_id': token_id,
                 'payload': payload
             }
-            with open('vm_agent_audit.jsonl', 'a', encoding='utf-8') as f:
+            with open('host_agent_audit.jsonl', 'a', encoding='utf-8') as f:
                 f.write(json.dumps(audit_entry) + '\n')
 
             if self.dry_run:
@@ -157,7 +190,7 @@ class VMAgentHandler(BaseHTTPRequestHandler):
                         pyautogui.scroll(dy)  # pyautogui scroll is vertical
                     self._send_json({'status': 'ok', 'message': 'action executed (live-run)'})
                 except Exception as e:
-                    self._send_json({'error': f'execution failed: {str(e)}'}, status=500)
+                    self._send_json({'error': 'execution failed'}, status=500)
             return
 
         self._send_json({'error': 'not found'}, status=404)
@@ -218,9 +251,9 @@ def check_updates_loop():
         time.sleep(300)  # Check every 5 minutes
 
 
-def run_server(port: int = 8000, host: str = '0.0.0.0', dry_run: bool = False):
-    VMAgentHandler.dry_run = dry_run
-    server = HTTPServer((host, port), VMAgentHandler)
+def run_server(port: int = 8000, host: str = '127.0.0.1', dry_run: bool = False):
+    HostAgentHandler.dry_run = dry_run
+    server = HTTPServer((host, port), HostAgentHandler)
     mode = 'dry-run (log only)' if dry_run else 'live-run (executes actions)'
     
     # Get local IP
@@ -234,7 +267,7 @@ def run_server(port: int = 8000, host: str = '0.0.0.0', dry_run: bool = False):
     finally:
         s.close()
     
-    print(f"VM agent running on http://{host}:{port} (local IP: {local_ip}) in {mode} mode")
+    print(f"Host agent running on http://{host}:{port} (local IP: {local_ip}) in {mode} mode")
     # Start auto-update thread
     update_thread = threading.Thread(target=check_updates_loop, daemon=True)
     update_thread.start()

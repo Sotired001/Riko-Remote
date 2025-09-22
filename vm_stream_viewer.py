@@ -1,9 +1,9 @@
 """
-Simple remote stream viewer that polls the remote agent /screenshot endpoint and displays frames.
+Simple remote stream viewer that polls the host agent /screenshot endpoint and displays frames.
 Usage:
-    set VM_AGENT_URL=http://remote-ip:8000
+    set HOST_AGENT_URL=http://host-ip:8000
     set REMOTE_API_TOKEN=your-token  # optional
-    set VM_POLLING_RATE=10  # FPS, default 10
+    set POLLING_RATE=10  # FPS, default 10
     set USE_STREAMING=1  # Use MJPEG streaming instead of polling
     python scripts/vm_stream_viewer.py
 
@@ -20,15 +20,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from external_reused.remote_agent_client import RemoteAgentClient
 
-VM_AGENT_URL = os.getenv('VM_AGENT_URL', 'http://127.0.0.1:8000')
+HOST_AGENT_URL = os.getenv('HOST_AGENT_URL', 'http://127.0.0.1:8000')
 REMOTE_API_TOKEN = os.getenv('REMOTE_API_TOKEN')
-VM_POLLING_RATE = int(os.getenv('VM_POLLING_RATE', '10'))  # FPS
+POLLING_RATE = int(os.getenv('POLLING_RATE', '10'))  # FPS
 USE_STREAMING = os.getenv('USE_STREAMING', '0').lower() in ('1', 'true', 'yes')
-poll_delay = 1.0 / VM_POLLING_RATE
+poll_delay = 1.0 / POLLING_RATE
 
 if USE_STREAMING:
     # Use MJPEG streaming
-    stream_url = f"{VM_AGENT_URL}/stream"
+    stream_url = f"{HOST_AGENT_URL}/stream"
     if REMOTE_API_TOKEN:
         # Note: cv2.VideoCapture doesn't support auth headers easily; assume no auth for streaming or use polling
         print("Warning: Streaming does not support token auth; using polling instead.")
@@ -54,9 +54,9 @@ if USE_STREAMING:
         cv2.destroyAllWindows()
 else:
     # Polling mode
-    client = RemoteAgentClient(VM_AGENT_URL, api_token=REMOTE_API_TOKEN)
+    client = RemoteAgentClient(HOST_AGENT_URL, api_token=REMOTE_API_TOKEN)
 
-    print(f'Connecting to remote agent at {VM_AGENT_URL} (polling at {VM_POLLING_RATE} FPS)')
+    print(f'Connecting to host agent at {HOST_AGENT_URL} (polling at {POLLING_RATE} FPS)')
 
     try:
         while True:
