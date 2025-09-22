@@ -36,6 +36,57 @@ $env:AGENT_API_TOKEN = 'your-token'
 python vm_stream_viewer.py
 ```
 
+## Web Orchestrator (NEW)
+
+For managing multiple agents with a modern web interface:
+
+```powershell
+# Install web dependencies
+.\install_orchestrator.bat
+
+# Start the web orchestrator
+python orchestrator_web.py
+```
+
+Then open your browser to `http://localhost:5000` for the web dashboard.
+
+Features:
+- Multi-agent dashboard with live screenshots
+- Web-based agent management and control
+- Real-time status monitoring
+- Add/remove agents dynamically
+
+## AI Assistant (NEW) 🤖
+
+Natural language control of your agents using local AI:
+
+```powershell
+# Install AI dependencies (includes Ollama)
+.\install_ai.bat
+
+# Use standalone AI assistant
+python ai_assistant.py
+
+# Or use integrated with web orchestrator
+python orchestrator_web.py
+# Then use the AI chat in the web interface
+```
+
+**AI Command Examples:**
+- "Take a screenshot of all agents"
+- "Click at position 100, 200 on the main agent" 
+- "Type hello world in the text field"
+- "Show me the status of all agents"
+- "Scroll down on agent 1"
+
+**Features:**
+- 🧠 Local AI (no cloud required) using Ollama
+- 🎯 Natural language command parsing
+- 🤖 Multi-agent coordination
+- 💬 Conversational interface in web UI
+- 📝 Command history and context awareness
+- 🔒 Safety checks for low-confidence commands
+
 API endpoints
 
 - GET /status — health and basic info

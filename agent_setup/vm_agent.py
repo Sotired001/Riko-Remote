@@ -19,11 +19,17 @@ import subprocess
 import sys
 import shutil
 from collections import defaultdict
+try:
+    import pyautogui
+    pyautogui.FAILSAFE = False  # Disable failsafe for multi-monitor
+except ImportError:
+    pyautogui = None
 
 class HostAgentHandler(BaseHTTPRequestHandler):
     dry_run = True
     last_screenshot = None
     rate_limit = defaultdict(list)
+    screen_info = None
 
     def _send_json(self, data, status=200):
         payload = json.dumps(data).encode('utf-8')
@@ -33,11 +39,96 @@ class HostAgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _get_screen_info(self):
+        """Get information about all available screens"""
+        if pyautogui:
+            try:
+                # Get all monitors
+                monitors = []
+                
+                # Try to get monitor info from pyautogui
+                size = pyautogui.size()
+                monitors.append({
+                    'index': 0,
+                    'primary': True,
+                    'left': 0,
+                    'top': 0,
+                    'width': size.width,
+                    'height': size.height,
+                    'name': 'Primary Monitor'
+                })
+                
+                # Try to get additional monitor info (Windows specific)
+                try:
+                    import win32api
+                    import win32con
+                    
+                    monitor_list = []
+                    def enum_callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
+                        monitor_list.append({
+                            'handle': hMonitor,
+                            'rect': lprcMonitor
+                        })
+                        return True
+                    
+                    win32api.EnumDisplayMonitors(None, None, enum_callback, 0)
+                    
+                    monitors = []
+                    for i, monitor in enumerate(monitor_list):
+                        rect = monitor['rect']
+                        monitors.append({
+                            'index': i,
+                            'primary': i == 0,
+                            'left': rect[0],
+                            'top': rect[1],
+                            'width': rect[2] - rect[0],
+                            'height': rect[3] - rect[1],
+                            'name': f'Monitor {i + 1}'
+                        })
+                        
+                except ImportError:
+                    # Fallback: assume single monitor
+                    pass
+                
+                return monitors
+                
+            except Exception as e:
+                print(f"Error getting screen info: {e}")
+                return [{'index': 0, 'primary': True, 'left': 0, 'top': 0, 'width': 1920, 'height': 1080, 'name': 'Default'}]
+        else:
+            return [{'index': 0, 'primary': True, 'left': 0, 'top': 0, 'width': 1920, 'height': 1080, 'name': 'Default'}]
+
+    def _capture_screen(self, screen_index=None):
+        """Capture screenshot from specific screen or all screens"""
+        try:
+            if screen_index is not None:
+                # Capture specific screen
+                screens = self._get_screen_info()
+                if screen_index < len(screens):
+                    screen = screens[screen_index]
+                    bbox = (screen['left'], screen['top'], 
+                           screen['left'] + screen['width'], 
+                           screen['top'] + screen['height'])
+                    img = ImageGrab.grab(bbox)
+                    return img, screen
+                else:
+                    return None, None
+            else:
+                # Capture all screens as one image
+                img = ImageGrab.grab(all_screens=True)
+                return img, {'index': 'all', 'name': 'All Screens'}
+                
+        except Exception as e:
+            print(f"Screenshot error: {e}")
+            # Fallback to primary screen
+            img = ImageGrab.grab()
+            return img, {'index': 0, 'name': 'Primary Screen'}
+
     def _check_rate_limit(self):
         client_ip = self.client_address[0]
         now = time.time()
         HostAgentHandler.rate_limit[client_ip] = [ts for ts in HostAgentHandler.rate_limit[client_ip] if now - ts < 60]
-        if len(HostAgentHandler.rate_limit[client_ip]) >= 10:
+        if len(HostAgentHandler.rate_limit[client_ip]) >= 60:  # Increased from 10 to 60
             self._send_json({'error': 'rate limit exceeded'}, status=429)
             return False
         HostAgentHandler.rate_limit[client_ip].append(now)
@@ -47,38 +138,107 @@ class HostAgentHandler(BaseHTTPRequestHandler):
         if not self._check_rate_limit():
             return
         if self.path == '/status':
-            info = {'status': 'ok', 'hostname': socket.gethostname(), 'time': time.time()}
+            info = {
+                'status': 'ok',
+                'hostname': socket.gethostname(),
+                'time': time.time(),
+                'screens': self._get_screen_info()
+            }
             self._send_json(info)
             return
         if self.path == '/screenshot':
             try:
-                img = ImageGrab.grab()
-                if self.last_screenshot is not None and hash(img.tobytes()) == hash(self.last_screenshot.tobytes()):
-                    self._send_json({'no_change': True})
+                # Check for screen parameter
+                screen_param = None
+                if '?' in self.path:
+                    query = self.path.split('?')[1]
+                    params = dict(param.split('=') for param in query.split('&') if '=' in param)
+                    screen_param = params.get('screen')
+                
+                screen_index = None
+                if screen_param and screen_param.isdigit():
+                    screen_index = int(screen_param)
+                
+                img, screen_info = self._capture_screen(screen_index)
+                if img is None:
+                    self._send_json({'error': 'Invalid screen index'}, status=400)
                     return
+                
+                # Check for changes (only for single screen)
+                if screen_index is not None and self.last_screenshot is not None:
+                    if hash(img.tobytes()) == hash(self.last_screenshot.tobytes()):
+                        self._send_json({'no_change': True, 'screen': screen_info})
+                        return
+                
                 buffered = io.BytesIO()
                 img.save(buffered, format='JPEG')
                 b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                self._send_json({'image': b64})
-                self.last_screenshot = img.copy()
+                self._send_json({
+                    'image': b64,
+                    'screen': screen_info,
+                    'screens_available': len(self._get_screen_info())
+                })
+                
+                if screen_index is not None:
+                    self.last_screenshot = img.copy()
+                    
             except Exception as e:
                 self._send_json({'error': str(e)}, status=500)
             return
+        if self.path.startswith('/screenshot/'):
+            # Handle /screenshot/0, /screenshot/1, etc.
+            try:
+                screen_index = int(self.path.split('/')[-1])
+                img, screen_info = self._capture_screen(screen_index)
+                if img is None:
+                    self._send_json({'error': 'Invalid screen index'}, status=404)
+                    return
+                
+                buffered = io.BytesIO()
+                img.save(buffered, format='JPEG')
+                b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                self._send_json({
+                    'image': b64,
+                    'screen': screen_info,
+                    'screens_available': len(self._get_screen_info())
+                })
+            except (ValueError, IndexError):
+                self._send_json({'error': 'Invalid screen index'}, status=400)
+            return
+        if self.path == '/screens':
+            # Return available screens info
+            self._send_json({
+                'screens': self._get_screen_info(),
+                'count': len(self._get_screen_info())
+            })
+            return
         if self.path == '/stream':
+            # MJPEG streaming with screen support
+            screen_param = None
+            if '?' in self.path:
+                query = self.path.split('?')[1]
+                params = dict(param.split('=') for param in query.split('&') if '=' in param)
+                screen_param = params.get('screen')
+            
+            screen_index = None
+            if screen_param and screen_param.isdigit():
+                screen_index = int(screen_param)
+            
             self.send_response(200)
             self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
             self.end_headers()
             try:
                 while True:
-                    img = ImageGrab.grab()
-                    buffered = io.BytesIO()
-                    img.save(buffered, format='JPEG')
-                    frame_data = buffered.getvalue()
-                    self.wfile.write(b'--frame\r\n')
-                    self.wfile.write(b'Content-Type: image/jpeg\r\n')
-                    self.wfile.write(f'Content-Length: {len(frame_data)}\r\n\r\n'.encode())
-                    self.wfile.write(frame_data)
-                    self.wfile.write(b'\r\n')
+                    img, _ = self._capture_screen(screen_index)
+                    if img:
+                        buffered = io.BytesIO()
+                        img.save(buffered, format='JPEG')
+                        frame_data = buffered.getvalue()
+                        self.wfile.write(b'--frame\r\n')
+                        self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                        self.wfile.write(f'Content-Length: {len(frame_data)}\r\n\r\n'.encode())
+                        self.wfile.write(frame_data)
+                        self.wfile.write(b'\r\n')
                     time.sleep(0.1)
             except Exception:
                 pass
@@ -121,18 +281,64 @@ class HostAgentHandler(BaseHTTPRequestHandler):
                 self._send_json({'status': 'ok', 'message': 'action logged (dry-run)'})
             else:
                 try:
-                    import pyautogui
+                    if pyautogui is None:
+                        raise ImportError("pyautogui not available")
+                    
+                    # Enhanced multi-monitor action handling
                     if payload.get('action') == 'click':
                         x, y = payload.get('coordinates', [0, 0])
-                        pyautogui.click(x, y)
+                        screen = payload.get('screen', 0)  # Target screen
+                        
+                        # Adjust coordinates for target screen
+                        screens = self._get_screen_info()
+                        if screen < len(screens):
+                            screen_info = screens[screen]
+                            # Convert relative coordinates to absolute screen coordinates
+                            if payload.get('relative', True):
+                                abs_x = screen_info['left'] + x
+                                abs_y = screen_info['top'] + y
+                            else:
+                                abs_x, abs_y = x, y
+                            pyautogui.click(abs_x, abs_y)
+                        else:
+                            pyautogui.click(x, y)  # Fallback to direct coordinates
+                            
                     elif payload.get('action') == 'type':
                         x, y = payload.get('coordinates', [0, 0])
                         text = payload.get('text', '')
-                        pyautogui.click(x, y)
+                        screen = payload.get('screen', 0)
+                        
+                        # Click first to focus, then type
+                        screens = self._get_screen_info()
+                        if screen < len(screens):
+                            screen_info = screens[screen]
+                            if payload.get('relative', True):
+                                abs_x = screen_info['left'] + x
+                                abs_y = screen_info['top'] + y
+                            else:
+                                abs_x, abs_y = x, y
+                            pyautogui.click(abs_x, abs_y)
+                        else:
+                            pyautogui.click(x, y)
                         pyautogui.typewrite(text)
+                        
                     elif payload.get('action') == 'scroll':
+                        x, y = payload.get('coordinates', [pyautogui.size().width//2, pyautogui.size().height//2])
                         dy = payload.get('dy', 0)
+                        screen = payload.get('screen', 0)
+                        
+                        # Move to screen position first
+                        screens = self._get_screen_info()
+                        if screen < len(screens):
+                            screen_info = screens[screen]
+                            if payload.get('relative', True):
+                                abs_x = screen_info['left'] + x
+                                abs_y = screen_info['top'] + y
+                            else:
+                                abs_x, abs_y = x, y
+                            pyautogui.moveTo(abs_x, abs_y)
                         pyautogui.scroll(dy)
+                        
                     self._send_json({'status': 'ok', 'message': 'action executed (live-run)'})
                 except Exception as e:
                     self._send_json({'error': f'execution failed: {str(e)}'}, status=500)

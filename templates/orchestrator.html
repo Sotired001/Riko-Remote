@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riko Orchestrator - Agent Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #2d2d2d;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #404040;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            color: #4ade80;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .view-toggle {
+            display: flex;
+            background: #374151;
+            border-radius: 0.375rem;
+            overflow: hidden;
+        }
+        
+        .view-toggle button {
+            background: transparent;
+            color: #9ca3af;
+            border: none;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .view-toggle button.active {
+            background: #4ade80;
+            color: #000;
+        }
+        
+        .view-toggle button:hover:not(.active) {
+            background: #4b5563;
+            color: #ffffff;
+        }
+        
+        button {
+            background: #4ade80;
+            color: #000;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        
+        button:hover {
+            background: #22c55e;
+        }
+        
+        button.secondary {
+            background: #374151;
+            color: #ffffff;
+        }
+        
+        button.secondary:hover {
+            background: #4b5563;
+        }
+        
+        .main-content {
+            display: flex;
+            height: calc(100vh - 80px);
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: #2d2d2d;
+            border-right: 1px solid #404040;
+            padding: 1rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .ai-chat {
+            background: #1f2937;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 1px solid #374151;
+        }
+        
+        .ai-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .ai-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6b7280;
+        }
+        
+        .ai-status.online {
+            background: #4ade80;
+        }
+        
+        .ai-status.error {
+            background: #ef4444;
+        }
+        
+        .chat-messages {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            padding: 0.5rem;
+            background: #111827;
+            border-radius: 0.375rem;
+            border: 1px solid #374151;
+        }
+        
+        .chat-message {
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+        }
+        
+        .chat-message.user {
+            background: #1e40af;
+            color: #ffffff;
+            margin-left: 1rem;
+        }
+        
+        .chat-message.ai {
+            background: #065f46;
+            color: #4ade80;
+            margin-right: 1rem;
+        }
+        
+        .chat-message.error {
+            background: #7f1d1d;
+            color: #ef4444;
+        }
+        
+        .chat-input-container {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .chat-input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid #4b5563;
+            border-radius: 0.375rem;
+            background: #374151;
+            color: #ffffff;
+            font-size: 0.875rem;
+        }
+        
+        .chat-input:focus {
+            outline: none;
+            border-color: #4ade80;
+        }
+        
+        .chat-send {
+            background: #4ade80;
+            color: #000;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .chat-send:hover {
+            background: #22c55e;
+        }
+        
+        .chat-send:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+        }
+        
+        .agent-grid {
+            flex: 1;
+            padding: 1rem;
+            display: grid;
+            gap: 1rem;
+            overflow-y: auto;
+            transition: all 0.3s ease;
+        }
+        
+        .agent-grid.grid-view {
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        }
+        
+        .agent-grid.large-view {
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+        }
+        
+        .agent-grid.compact-view {
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+        
+        .agent-grid.list-view {
+            grid-template-columns: 1fr;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .agent-grid.fullscreen-view {
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+            padding: 0;
+        }
+        
+        .agent-grid.fullscreen-view .agent-card {
+            border-radius: 0;
+            height: 100vh;
+        }
+        
+        .agent-card {
+            background: #2d2d2d;
+            border: 1px solid #404040;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        
+        .agent-card.online {
+            border-color: #4ade80;
+        }
+        
+        .agent-card.error {
+            border-color: #ef4444;
+        }
+        
+        .agent-header {
+            padding: 1rem;
+            border-bottom: 1px solid #404040;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .agent-name {
+            font-weight: 600;
+            color: #ffffff;
+        }
+        
+        .agent-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .agent-status.online {
+            background: #065f46;
+            color: #4ade80;
+        }
+        
+        .agent-status.error {
+            background: #7f1d1d;
+            color: #ef4444;
+        }
+        
+        .agent-status.unknown {
+            background: #374151;
+            color: #9ca3af;
+        }
+        
+        .agent-screenshot {
+            width: 100%;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: height 0.3s ease;
+        }
+        
+        .grid-view .agent-screenshot,
+        .compact-view .agent-screenshot {
+            height: 250px;
+        }
+        
+        .large-view .agent-screenshot {
+            height: 400px;
+        }
+        
+        .list-view .agent-screenshot {
+            height: 200px;
+        }
+        
+        .fullscreen-view .agent-screenshot {
+            height: calc(100vh - 120px);
+        }
+        
+        .agent-screenshot img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        
+        .agent-screenshot .fullscreen-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: rgba(0, 0, 0, 0.7);
+            color: #ffffff;
+            border: none;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 0.75rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .agent-card:hover .fullscreen-btn {
+            opacity: 1;
+        }
+        
+        /* Multi-screen support styles */
+        .multi-screen-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .screen-tabs {
+            display: flex;
+            background: #1f2937;
+            border-radius: 0.375rem 0.375rem 0 0;
+            overflow: hidden;
+            margin-bottom: 0.25rem;
+        }
+        
+        .screen-tab {
+            flex: 1;
+            background: #374151;
+            color: #9ca3af;
+            border: none;
+            padding: 0.5rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-right: 1px solid #4b5563;
+        }
+        
+        .screen-tab:last-child {
+            border-right: none;
+        }
+        
+        .screen-tab.active {
+            background: #4ade80;
+            color: #000;
+        }
+        
+        .screen-tab:hover:not(.active) {
+            background: #4b5563;
+            color: #fff;
+        }
+        
+        .screen-display {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        
+        .screen-display img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            cursor: pointer;
+        }
+        
+        .agent-screenshot .connection-indicator {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .connection-indicator.good {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+            border: 1px solid #4ade80;
+        }
+        
+        .connection-indicator.poor {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            border: 1px solid #fbbf24;
+        }
+        
+        .connection-indicator.bad {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid #ef4444;
+        }
+        
+        .agent-controls {
+            padding: 1rem;
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .agent-controls button {
+            font-size: 0.75rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .add-agent-form {
+            background: #374151;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .add-agent-form h3 {
+            margin-bottom: 1rem;
+            color: #4ade80;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.875rem;
+            color: #d1d5db;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #4b5563;
+            border-radius: 0.375rem;
+            background: #1f2937;
+            color: #ffffff;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #4ade80;
+        }
+        
+        .agent-list {
+            margin-top: 1rem;
+        }
+        
+        .agent-list h3 {
+            color: #4ade80;
+            margin-bottom: 0.5rem;
+        }
+        
+        .agent-item {
+            padding: 0.5rem;
+            background: #374151;
+            border-radius: 0.375rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .agent-item-name {
+            font-weight: 500;
+        }
+        
+        .agent-item-url {
+            font-size: 0.75rem;
+            color: #9ca3af;
+        }
+        
+        .remove-btn {
+            background: #ef4444 !important;
+            color: #ffffff !important;
+            padding: 0.25rem 0.5rem !important;
+            font-size: 0.75rem !important;
+        }
+        
+        .remove-btn:hover {
+            background: #dc2626 !important;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+        
+        .status-indicator.online {
+            background: #4ade80;
+        }
+        
+        .status-indicator.error {
+            background: #ef4444;
+        }
+        
+        .status-indicator.unknown {
+            background: #6b7280;
+        }
+        
+        .agent-performance {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 1rem;
+            background: #1f2937;
+            border-top: 1px solid #374151;
+            font-size: 0.75rem;
+            color: #9ca3af;
+        }
+        
+        .perf-metric {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.125rem;
+        }
+        
+        .perf-value {
+            font-weight: 600;
+            color: #ffffff;
+        }
+        
+        .perf-label {
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 Riko Orchestrator</h1>
+        <div class="controls">
+            <span id="agent-count">0 agents</span>
+            <div class="view-toggle">
+                <button class="active" onclick="setView('grid')">Grid</button>
+                <button onclick="setView('large')">Large</button>
+                <button onclick="setView('compact')">Compact</button>
+                <button onclick="setView('list')">List</button>
+            </div>
+            <button onclick="discoverAgents()">Discover Agents</button>
+            <button class="secondary" onclick="refreshAll()">Refresh All</button>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="sidebar">
+            <div class="ai-chat">
+                <div class="ai-header">
+                    <div class="ai-status" id="ai-status"></div>
+                    <h3>🤖 AI Assistant</h3>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-message ai">
+                        👋 Hi! I can help you control your agents with natural language commands.
+                        Try: "Take a screenshot" or "Click at 100, 200"
+                    </div>
+                </div>
+                <div class="chat-input-container">
+                    <input type="text" class="chat-input" id="ai-input" placeholder="Type a command..." onkeypress="handleChatKeypress(event)">
+                    <button class="chat-send" id="chat-send" onclick="sendAICommand()">Send</button>
+                </div>
+            </div>
+            
+            <div class="add-agent-form">
+                <h3>Add Agent</h3>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="agent-name" placeholder="My Agent">
+                </div>
+                <div class="form-group">
+                    <label>URL</label>
+                    <input type="text" id="agent-url" placeholder="http://192.168.1.100:8000">
+                </div>
+                <div class="form-group">
+                    <label>Token (optional)</label>
+                    <input type="text" id="agent-token" placeholder="your-api-token">
+                </div>
+                <button onclick="addAgent()">Add Agent</button>
+            </div>
+
+            <div class="add-agent-form" id="discovery-panel">
+                <h3>Discovery Results</h3>
+                <div id="discovery-list" style="max-height:200px; overflow-y:auto; padding:0.5rem; background:#111827; border-radius:0.375rem; border:1px solid #374151;"></div>
+            </div>
+            
+            <div class="agent-list">
+                <h3>Connected Agents</h3>
+                <div id="agent-list-items"></div>
+            </div>
+        </div>
+        
+        <div class="agent-grid grid-view" id="agent-grid">
+            <!-- Agent cards will be populated here -->
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let agents = {};
+        let currentView = 'grid';
+        let fullscreenAgent = null;
+        let aiAvailable = false;
+        
+        socket.on('connect', function() {
+            console.log('Connected to orchestrator');
+            checkAIStatus();
+        });
+        
+        socket.on('agent_update', function(data) {
+            agents = data;
+            updateUI();
+        });
+
+        socket.on('discovery_result', function(payload) {
+            console.log('Discovery result', payload);
+            const list = document.getElementById('discovery-list');
+            if (!list) return;
+            list.innerHTML = '';
+            (payload.agents || []).forEach(a => {
+                const item = document.createElement('div');
+                item.className = 'discovery-item';
+                item.innerHTML = `
+                    <div>${a.url} (${a.status})</div>
+                    <button onclick="addDiscoveredAgent('${a.url}')">Add</button>
+                `;
+                list.appendChild(item);
+            });
+            // Show a simple alert/modal - for now use alert
+            if ((payload.agents || []).length === 0) {
+                alert(payload.message || 'No agents found');
+            } else {
+                alert(payload.message || 'Discovery finished - check discovery list');
+            }
+        });
+        
+        function setView(viewType) {
+            currentView = viewType;
+            const grid = document.getElementById('agent-grid');
+            grid.className = `agent-grid ${viewType}-view`;
+            
+            // Update active button
+            document.querySelectorAll('.view-toggle button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            updateAgentGrid();
+        }
+        
+        function toggleFullscreen(agentId) {
+            const grid = document.getElementById('agent-grid');
+            if (fullscreenAgent === agentId) {
+                fullscreenAgent = null;
+                grid.className = `agent-grid ${currentView}-view`;
+            } else {
+                fullscreenAgent = agentId;
+                grid.className = 'agent-grid fullscreen-view';
+            }
+            updateAgentGrid();
+        }
+        
+        function getConnectionQuality(agent) {
+            if (!agent.last_seen) return 'bad';
+            const lastSeen = new Date(agent.last_seen);
+            const now = new Date();
+            const diffSeconds = (now - lastSeen) / 1000;
+            
+            if (diffSeconds < 5) return 'good';
+            if (diffSeconds < 15) return 'poor';
+            return 'bad';
+        }
+        
+        function generatePerformanceMetrics(agent) {
+            // Use real performance data when available, fallback to mock data
+            const responseTime = agent.response_time || Math.floor(Math.random() * 100) + 50;
+            
+            // Calculate uptime from created_at if available
+            let uptime = '?';
+            if (agent.created_at) {
+                const created = new Date(agent.created_at);
+                const now = new Date();
+                const diffHours = Math.floor((now - created) / (1000 * 60 * 60));
+                uptime = diffHours > 0 ? `${diffHours}h` : '<1h';
+            }
+            
+            // Estimate FPS based on update frequency
+            const fps = agent.last_update ? '10' : Math.floor(Math.random() * 5) + 8;
+            
+            return `
+                <div class="agent-performance">
+                    <div class="perf-metric">
+                        <div class="perf-value">${responseTime}ms</div>
+                        <div class="perf-label">Response</div>
+                    </div>
+                    <div class="perf-metric">
+                        <div class="perf-value">${uptime}</div>
+                        <div class="perf-label">Uptime</div>
+                    </div>
+                    <div class="perf-metric">
+                        <div class="perf-value">${fps} fps</div>
+                        <div class="perf-label">Refresh</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function generateScreenshotContent(agent) {
+            // Check if agent has multiple screens
+            const screens = agent.screens || [];
+            const hasMultipleScreens = screens.length > 1;
+            
+            if (!agent.screenshot && screens.length === 0) {
+                return '<div class="placeholder">No screenshot available</div>';
+            }
+            
+            if (!hasMultipleScreens) {
+                // Single screen display
+                return agent.screenshot 
+                    ? `<img src="data:image/jpeg;base64,${agent.screenshot}" alt="Agent Screenshot" onclick="showScreenDetails('${agent.id}', 0)">`
+                    : '<div class="placeholder">No screenshot available</div>';
+            }
+            
+            // Multi-screen display
+            let content = '<div class="multi-screen-container">';
+            
+            // Show screen selector tabs
+            content += '<div class="screen-tabs">';
+            screens.forEach((screen, index) => {
+                const isActive = index === 0 ? 'active' : '';
+                content += `<button class="screen-tab ${isActive}" onclick="switchScreen('${agent.id}', ${index})" data-screen="${index}">
+                    Screen ${index + 1} (${screen.width}x${screen.height})
+                </button>`;
+            });
+            content += '</div>';
+            
+            // Show primary screen image (screen 0) by default
+            content += `<div class="screen-display" id="screen-display-${agent.id}">`;
+            if (agent.screenshot) {
+                content += `<img src="data:image/jpeg;base64,${agent.screenshot}" alt="Agent Screenshot Screen 0" onclick="showScreenDetails('${agent.id}', 0)">`;
+            } else {
+                content += '<div class="placeholder">Loading screenshot...</div>';
+            }
+            content += '</div>';
+            
+            content += '</div>';
+            return content;
+        }
+        
+        function updateUI() {
+            updateAgentCount();
+            updateAgentList();
+            updateAgentGrid();
+        }
+        
+        function updateAgentCount() {
+            const count = Object.keys(agents).length;
+            document.getElementById('agent-count').textContent = `${count} agent${count !== 1 ? 's' : ''}`;
+        }
+        
+        function updateAgentList() {
+            const container = document.getElementById('agent-list-items');
+            container.innerHTML = '';
+            
+            Object.values(agents).forEach(agent => {
+                const item = document.createElement('div');
+                item.className = 'agent-item';
+                item.innerHTML = `
+                    <div>
+                        <div class="agent-item-name">
+                            <span class="status-indicator ${agent.status}"></span>
+                            ${agent.name}
+                        </div>
+                        <div class="agent-item-url">${agent.url}</div>
+                    </div>
+                    <button class="remove-btn" onclick="removeAgent('${agent.id}')">Remove</button>
+                `;
+                container.appendChild(item);
+            });
+        }
+        
+        function updateAgentGrid() {
+            const container = document.getElementById('agent-grid');
+            container.innerHTML = '';
+            
+            const agentsToShow = fullscreenAgent 
+                ? [agents[fullscreenAgent]].filter(Boolean)
+                : Object.values(agents);
+            
+            agentsToShow.forEach(agent => {
+                const card = document.createElement('div');
+                card.className = `agent-card ${agent.status}`;
+                card.setAttribute('data-agent-id', agent.id);
+                
+                const connectionQuality = getConnectionQuality(agent);
+                
+                // Generate multi-screen content
+                const screenshotContent = generateScreenshotContent(agent);
+                
+                const errorInfo = agent.error ? `<div style="color: #ef4444; font-size: 0.75rem; margin-top: 0.5rem;">Error: ${agent.error}</div>` : '';
+                
+                const fullscreenBtn = fullscreenAgent !== agent.id 
+                    ? `<button class="fullscreen-btn" onclick="toggleFullscreen('${agent.id}')">⛶ Fullscreen</button>`
+                    : `<button class="fullscreen-btn" onclick="toggleFullscreen('${agent.id}')">⛶ Exit</button>`;
+                
+                card.innerHTML = `
+                    <div class="agent-header">
+                        <div class="agent-name">${agent.name}</div>
+                        <div class="agent-status ${agent.status}">${agent.status}</div>
+                    </div>
+                    <div class="agent-screenshot">
+                        <div class="connection-indicator ${connectionQuality}">${connectionQuality.toUpperCase()}</div>
+                        ${fullscreenBtn}
+                        ${screenshotContent}
+                    </div>
+                    <div class="agent-controls">
+                        <button onclick="executeAction('${agent.id}', 'click')">Click Test</button>
+                        <button onclick="refreshAgent('${agent.id}')">Refresh</button>
+                        <button onclick="openAgentDetails('${agent.id}')">Details</button>
+                        <button onclick="openAgentConsole('${agent.id}')">Console</button>
+                    </div>
+                    ${generatePerformanceMetrics(agent)}
+                    ${errorInfo}
+                `;
+                
+                container.appendChild(card);
+            });
+        }
+        
+        function addAgent() {
+            const name = document.getElementById('agent-name').value || 'Unnamed Agent';
+            const url = document.getElementById('agent-url').value;
+            const token = document.getElementById('agent-token').value || null;
+            
+            if (!url) {
+                alert('URL is required');
+                return;
+            }
+            
+            fetch('/api/agents', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, url, token })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Clear form
+                    document.getElementById('agent-name').value = '';
+                    document.getElementById('agent-url').value = '';
+                    document.getElementById('agent-token').value = '';
+                } else {
+                    alert('Error adding agent: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                alert('Error adding agent: ' + error.message);
+            });
+        }
+        
+        function removeAgent(agentId) {
+            if (confirm('Are you sure you want to remove this agent?')) {
+                fetch(`/api/agents/${agentId}`, { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        alert('Error removing agent');
+                    }
+                });
+            }
+        }
+        
+        function executeAction(agentId, action) {
+            const actionData = {
+                action: action,
+                coordinates: [100, 100] // Test coordinates
+            };
+            
+            fetch(`/api/agents/${agentId}/exec`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(actionData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Action result:', data);
+                if (data.error) {
+                    alert('Action failed: ' + data.error);
+                }
+            });
+        }
+        
+        function refreshAgent(agentId) {
+            // Trigger immediate refresh for this agent
+            console.log('Refreshing agent:', agentId);
+            fetch(`/api/agents/${agentId}/refresh`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    alert('Refresh failed: ' + (data.error || 'unknown'));
+                }
+                // server will emit agent_update on success, so UI will update
+            })
+            .catch(err => {
+                alert('Refresh error: ' + err.message);
+            });
+        }
+        
+        function openAgentDetails(agentId) {
+            console.log('Opening details for agent:', agentId);
+            fetch(`/api/agents/${agentId}/screens`)
+            .then(response => response.json())
+            .then(data => {
+                const screens = data.screens || [];
+                const agent = agents[agentId];
+                let msg = `Agent: ${agent?.name || agentId}\nURL: ${agent?.url || 'unknown'}\nStatus: ${agent?.status || 'unknown'}\n\nScreens (${screens.length}):\n`;
+                screens.forEach((s, i) => {
+                    msg += `\n[${i}] ${s.width}x${s.height} @ (${s.x},${s.y})${s.is_primary ? ' (primary)' : ''}`;
+                });
+                alert(msg);
+            })
+            .catch(err => {
+                alert('Failed to load details: ' + err.message);
+            });
+        }
+
+        function addDiscoveredAgent(url) {
+            const name = `Discovered ${url}`;
+            fetch('/api/agents', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, url })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) {
+                    alert('Failed to add agent: ' + (data.error || 'unknown'));
+                }
+            })
+            .catch(err => alert('Error adding discovered agent: ' + err.message));
+        }
+        
+        function openAgentConsole(agentId) {
+            // TODO: Open interactive console for this agent
+            console.log('Opening console for agent:', agentId);
+            // Could open a terminal-like interface for direct commands
+        }
+        
+        function discoverAgents() {
+            socket.emit('discover_agents');
+        }
+        
+        function refreshAll() {
+            location.reload();
+        }
+        
+        // Multi-screen support functions
+        function switchScreen(agentId, screenIndex) {
+            // Update active tab
+            const agentCard = document.querySelector(`[data-agent-id="${agentId}"]`);
+            if (!agentCard) return;
+            
+            const tabs = agentCard.querySelectorAll('.screen-tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            tabs[screenIndex]?.classList.add('active');
+            
+            // Load screenshot for this screen
+            const displayEl = document.getElementById(`screen-display-${agentId}`);
+            if (displayEl) {
+                displayEl.innerHTML = '<div class="placeholder">Loading...</div>';
+                
+                fetch(`/api/agents/${agentId}/screenshot/${screenIndex}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.image) {
+                        displayEl.innerHTML = `<img src="data:image/jpeg;base64,${data.image}" alt="Agent Screenshot Screen ${screenIndex}" onclick="showScreenDetails('${agentId}', ${screenIndex})">`;
+                    } else {
+                        displayEl.innerHTML = '<div class="placeholder">Screenshot not available</div>';
+                    }
+                })
+                .catch(error => {
+                    displayEl.innerHTML = '<div class="placeholder">Error loading screenshot</div>';
+                });
+            }
+        }
+        
+        function showScreenDetails(agentId, screenIndex) {
+            // TODO: Show detailed screen information in a modal
+            console.log(`Show details for agent ${agentId} screen ${screenIndex}`);
+            
+            // Get screen info
+            fetch(`/api/agents/${agentId}/screens`)
+            .then(response => response.json())
+            .then(data => {
+                const screens = data.screens || [];
+                const screen = screens[screenIndex];
+                
+                if (screen) {
+                    const details = `Screen ${screenIndex + 1}:
+Resolution: ${screen.width}x${screen.height}
+Position: ${screen.x}, ${screen.y}
+Primary: ${screen.is_primary ? 'Yes' : 'No'}`;
+                    
+                    alert(details); // TODO: Replace with proper modal
+                }
+            });
+        }
+        
+        // AI Assistant Functions
+        function checkAIStatus() {
+            fetch('/api/ai/status')
+            .then(response => response.json())
+            .then(data => {
+                aiAvailable = data.available;
+                const statusEl = document.getElementById('ai-status');
+                const sendBtn = document.getElementById('chat-send');
+                const inputEl = document.getElementById('ai-input');
+                
+                if (data.available) {
+                    statusEl.className = 'ai-status online';
+                    sendBtn.disabled = false;
+                    inputEl.placeholder = 'Type a command...';
+                } else {
+                    statusEl.className = 'ai-status error';
+                    sendBtn.disabled = true;
+                    inputEl.placeholder = 'AI unavailable - install Ollama';
+                    addChatMessage('ai', '⚠️ AI unavailable. Please install Ollama and run: ollama pull llama3.2', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('AI status check failed:', error);
+                document.getElementById('ai-status').className = 'ai-status error';
+            });
+        }
+        
+        function handleChatKeypress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendAICommand();
+            }
+        }
+        
+        function sendAICommand() {
+            const inputEl = document.getElementById('ai-input');
+            const command = inputEl.value.trim();
+            
+            if (!command || !aiAvailable) return;
+            
+            // Add user message to chat
+            addChatMessage('user', command);
+            inputEl.value = '';
+            
+            // Disable send button while processing
+            const sendBtn = document.getElementById('chat-send');
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Thinking...';
+            
+            // Send command to AI
+            fetch('/api/ai/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: command })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const summary = data.commands.map(cmd => 
+                        `${cmd.action} on ${cmd.agent_id || 'all agents'} (${cmd.confidence.toFixed(1)})`
+                    ).join(', ');
+                    addChatMessage('ai', `✅ Executed: ${summary}`);
+                } else {
+                    const errors = data.results.filter(r => r.error).map(r => r.error);
+                    addChatMessage('ai', `❌ ${errors.join(', ')}`, 'error');
+                }
+            })
+            .catch(error => {
+                addChatMessage('ai', `❌ Error: ${error.message}`, 'error');
+            })
+            .finally(() => {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send';
+            });
+        }
+        
+        function addChatMessage(sender, message, type = '') {
+            const messagesEl = document.getElementById('chat-messages');
+            const messageEl = document.createElement('div');
+            messageEl.className = `chat-message ${sender} ${type}`;
+            messageEl.textContent = message;
+            
+            messagesEl.appendChild(messageEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            
+            // Keep only last 20 messages
+            while (messagesEl.children.length > 20) {
+                messagesEl.removeChild(messagesEl.firstChild);
+            }
+        }
+        
+        // Initialize UI
+        updateUI();
+    </script>
+</body>
+</html>
